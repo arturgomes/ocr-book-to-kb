@@ -1,0 +1,4 @@
+.venv-ocr/
+__pycache__/
+*.pyc
+.paddle-cache/
