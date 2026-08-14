@@ -47,8 +47,42 @@ else
 fi
 
 "$REPO_DIR/.venv-ocr/bin/pip" install -q --upgrade pip
-"$REPO_DIR/.venv-ocr/bin/pip" install -q paddlepaddle paddleocr "paddlex[ocr]" pandas tabulate
+
+# paddlepaddle is pinned to 3.0.0 on Linux x86_64. On that platform 3.3.1's oneDNN kernel
+# raises NotImplementedError (ConvertPirAttribute2RuntimeAttribute) on the layout-detection
+# model, and the enable_mkldnn=False workaround costs 6x the time and 3.4x the peak memory
+# for byte-identical output (measured: 9.0s/3.4GB vs 56.6s/11.7GB on the same page).
+# macOS/ARM has no oneDNN path and is unaffected, so it stays on the latest release.
+PADDLE_SPEC="paddlepaddle"
+if [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "x86_64" ]; then
+  PADDLE_SPEC="paddlepaddle==3.0.0"
+  echo "  Linux x86_64 detected — pinning $PADDLE_SPEC (3.3.1 breaks on oneDNN)"
+fi
+
+# tabulate is not optional: without it pandas' df.to_markdown() raises ImportError, which
+# paddle_structure_ocr's per-table `except Exception` swallows — every table in the book
+# then lands as raw HTML instead of markdown, with nothing in the log to say so.
+"$REPO_DIR/.venv-ocr/bin/pip" install -q "$PADDLE_SPEC" paddleocr "paddlex[ocr]" pandas tabulate
 echo "  .venv-ocr dependencies installed"
+
+echo "==> Verifying the --tables toolchain imports..."
+"$REPO_DIR/.venv-ocr/bin/python" - <<'PYEOF'
+import sys
+
+missing = []
+for mod in ("paddle", "paddleocr", "pandas", "tabulate"):
+    try:
+        __import__(mod)
+    except ImportError as exc:
+        missing.append(f"{mod} ({exc})")
+if missing:
+    print("❌ --tables toolchain incomplete: " + ", ".join(missing), file=sys.stderr)
+    sys.exit(1)
+
+import paddle
+
+print(f"  paddlepaddle {paddle.__version__}, pandas + tabulate OK")
+PYEOF
 echo "  (PP-StructureV3 models — ~1-2GB — download on first --tables/benchmark.py run, then cache in ~/.paddlex/)"
 
 echo "==> Installing Claude Code skill..."

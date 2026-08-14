@@ -61,6 +61,24 @@ def collect_images(directory: Path) -> list:
     return images
 
 
+def _preflight_table_deps() -> None:
+    """Fail before OCR'ing 200 pages, not silently per table.
+
+    df.to_markdown() needs tabulate. Without it every table in the book falls through
+    _table_html_to_markdown's except branch and lands as raw HTML, and because that branch
+    is per-table there is nothing in the log to say the whole book came out degraded.
+    """
+    for mod in ("pandas", "tabulate"):
+        try:
+            __import__(mod)
+        except ImportError as exc:
+            sys.exit(
+                f"❌ {mod} missing from this environment ({exc}).\n"
+                f"   Tables would silently come out as raw HTML instead of markdown.\n"
+                f"   Fix: .venv-ocr/bin/pip install pandas tabulate   (or re-run ./install.sh)"
+            )
+
+
 def _table_html_to_markdown(match: re.Match) -> str:
     import pandas as pd
 
@@ -181,6 +199,7 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
+    _preflight_table_deps()
     pages = run(args.image_dir, args.cache_dir, args.lang, args.workers)
     print(json.dumps({"pages": pages}))
     return 0

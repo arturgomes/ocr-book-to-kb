@@ -111,12 +111,27 @@ is used) — `./install.sh` handles this, or manually:
 ```bash
 cd ~/Documents/ai-tools/ocr-book-to-kb
 python3.12 -m venv .venv-ocr
-.venv-ocr/bin/pip install paddlepaddle paddleocr "paddlex[ocr]" pandas
+.venv-ocr/bin/pip install paddlepaddle paddleocr "paddlex[ocr]" pandas tabulate
+# on Linux x86_64 pin paddle instead:
+.venv-ocr/bin/pip install "paddlepaddle==3.0.0" paddleocr "paddlex[ocr]" pandas tabulate
 ```
 (paddlepaddle needs Python ≤3.13 — use `python3.12` explicitly if the system default is
 newer.) First `--tables`/`benchmark.py` run also downloads ~1-2GB of PP-StructureV3
 models; that download counts against the ~100s/page estimate for page 1 only, then is
 cached in `~/.paddlex/`.
+
+**Two dependency traps, both verified the hard way on a Linux x86_64 box:**
+
+- **`paddlepaddle==3.0.0` is required on Linux x86_64**, not preferred. 3.3.1's oneDNN
+  kernel raises `NotImplementedError: ConvertPirAttribute2RuntimeAttribute` on the
+  layout-detection model, and passing `enable_mkldnn=False` to work around it costs **6x
+  the time and 3.4x the peak memory for byte-identical output** (9.0s/3.4GB vs
+  56.6s/11.7GB on the same page). At 11.7GB/worker even 3 workers OOM a 16GB machine.
+  macOS/ARM has no oneDNN path and is unaffected.
+- **`tabulate` is not optional.** Without it `df.to_markdown()` raises ImportError, the
+  per-table `except Exception` swallows it, and every table in the book silently lands as
+  raw HTML — the exact failure `--tables` was chosen to avoid. `paddle_structure_ocr.py`
+  now preflights for it and refuses to start rather than degrade quietly.
 
 Output (either engine): `05-Knowledge-Base/domains/{domain}/markdown/{book-slug}/{book-slug}.md`
 
@@ -227,9 +242,11 @@ Error Handling section.
 - **ultimate-obsidian MCP** (Step 7)
 
 **Optional** (only for `--tables`):
-- `.venv-ocr` — dedicated Python 3.12 venv with `paddlepaddle`, `paddleocr`,
-  `paddlex[ocr]`, `pandas` (paddlepaddle doesn't support Python 3.14, hence the
-  separate venv instead of the system/project Python) — set up by `./install.sh`
+- `.venv-ocr` — dedicated Python 3.12 venv with `paddlepaddle` (**pinned to `==3.0.0` on
+  Linux x86_64**), `paddleocr`, `paddlex[ocr]`, `pandas`, **`tabulate`** (required — its
+  absence silently turns every table into raw HTML). paddlepaddle doesn't support Python
+  3.14, hence the separate venv instead of the system/project Python — set up by
+  `./install.sh`, which applies the platform pin and verifies every import.
 
 ## Quality Assurance
 
